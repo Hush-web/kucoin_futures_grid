@@ -14,20 +14,26 @@ class StateManager:
     def __init__(self, db_path: str = None):
         """
         Initialize the state manager.
-        If DATA_DIR environment variable is set (Render), the database is stored there.
-        Otherwise, it uses the current directory.
+        If DATA_DIR is set, try to use it; fallback to local directory if permission denied.
         """
         if db_path is None:
             data_dir = os.getenv('DATA_DIR')
             if data_dir:
-                # Render persistent disk
-                data_path = Path(data_dir)
-                data_path.mkdir(parents=True, exist_ok=True)
-                db_path = str(data_path / 'grid_state.db')
-                logger.info(f"📁 Using Render persistent disk: {db_path}")
+                try:
+                    data_path = Path(data_dir)
+                    data_path.mkdir(parents=True, exist_ok=True)
+                    db_path = str(data_path / 'grid_state.db')
+                    logger.info(f"📁 Using Render persistent disk: {db_path}")
+                except (PermissionError, FileNotFoundError, OSError) as e:
+                    logger.warning(f"Cannot use {data_dir}: {e}. Falling back to local './data'.")
+                    data_path = Path("data")
+                    data_path.mkdir(parents=True, exist_ok=True)
+                    db_path = str(data_path / 'grid_state.db')
             else:
                 # Local development
-                db_path = 'grid_state.db'
+                data_path = Path("data")
+                data_path.mkdir(parents=True, exist_ok=True)
+                db_path = str(data_path / 'grid_state.db')
 
         self.db_path = db_path
         self._lock = asyncio.Lock()
