@@ -13,7 +13,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 
 class TelegramController:
     def __init__(self, token: str, allowed_chat_ids: Union[list, str], grid_engine):
-        self.token = token  # <--- FIX: missing this line
+        self.token = token
         if isinstance(allowed_chat_ids, str):
             allowed_chat_ids = [int(x.strip()) for x in allowed_chat_ids.split(',') if x.strip().isdigit()]
         self.allowed_chat_ids = set(allowed_chat_ids)
@@ -236,7 +236,8 @@ class TelegramController:
             self._running = True
             await self._app.initialize()
             await self._app.start()
-            await self._app.updater.start_polling()
+            # FIX: drop_pending_updates=True prevents the Conflict error
+            await self._app.updater.start_polling(drop_pending_updates=True)
             logger.success("✅ Telegram bot is connected and polling. Send /start on Telegram.")
         except Exception as e:
             logger.error(f"❌ Telegram FAILED to start: {e}")
