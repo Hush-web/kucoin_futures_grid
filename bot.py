@@ -24,7 +24,6 @@ from core.telegram import TelegramController
 
 
 # --- THE SWITCH (Can be overridden by ENV) ---
-# Set USE_SIMULATOR=false on Render for live trading
 USE_SIMULATOR = os.getenv('USE_SIMULATOR', 'true').lower() == 'true'
 # ---------------------------------------------
 
