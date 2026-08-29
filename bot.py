@@ -36,16 +36,56 @@ else:
 
 def load_config():
     """
-    Load config.yaml and override with environment variables.
-    Environment variables take priority over config.yaml.
+    Load config.yaml if exists, otherwise create a default config.
+    Environment variables always override.
     """
-    # Load YAML config
-    with open("config.yaml", "r") as f:
-        config = yaml.safe_load(f)
+    # Default config (used if config.yaml is missing)
+    default_config = {
+        "exchange": {
+            "api_key": "",
+            "api_secret": "",
+            "api_passphrase": "",
+            "sandbox": False,
+            "leverage": 2,
+            "margin_mode": "isolated"
+        },
+        "grid": {
+            "symbol": "SOL/USDT:USDT",
+            "grid_lines": 20,
+            "range_percent": 0.05,
+            "quote_currency": "USDT"
+        },
+        "risk": {
+            "max_position_percent": 0.95,
+            "stop_loss_percent": 0.25,
+            "min_notional": 10.0,
+            "dynamic_floor_threshold": 0.10
+        },
+        "telegram": {
+            "enabled": False,
+            "bot_token": "",
+            "allowed_chat_ids": []
+        },
+        "logging": {
+            "level": "INFO",
+            "file": "logs/grid_bot.log"
+        }
+    }
 
-    # --- OVERRIDE WITH ENVIRONMENT VARIABLES (for Render) ---
+    # Try to load config.yaml
+    try:
+        with open("config.yaml", "r") as f:
+            config = yaml.safe_load(f)
+        logger.info("Loaded config.yaml")
+    except FileNotFoundError:
+        logger.warning("config.yaml not found. Using default configuration.")
+        config = default_config
+    except Exception as e:
+        logger.error(f"Error loading config.yaml: {e}. Using defaults.")
+        config = default_config
 
-    # Exchange settings
+    # --- OVERRIDE WITH ENVIRONMENT VARIABLES ---
+    # Exchange
     if os.getenv('KUCOIN_API_KEY'):
         config['exchange']['api_key'] = os.getenv('KUCOIN_API_KEY')
     if os.getenv('KUCOIN_API_SECRET'):
@@ -57,7 +97,7 @@ def load_config():
     if os.getenv('LEVERAGE'):
         config['exchange']['leverage'] = int(os.getenv('LEVERAGE'))
 
-    # Grid settings
+    # Grid
     if os.getenv('SYMBOL'):
         config['grid']['symbol'] = os.getenv('SYMBOL')
     if os.getenv('GRID_LINES'):
@@ -65,22 +105,21 @@ def load_config():
     if os.getenv('RANGE_PERCENT'):
         config['grid']['range_percent'] = float(os.getenv('RANGE_PERCENT'))
 
-    # Risk settings
+    # Risk
     if os.getenv('STOP_LOSS_PERCENT'):
         config['risk']['stop_loss_percent'] = float(os.getenv('STOP_LOSS_PERCENT'))
     if os.getenv('MIN_NOTIONAL'):
         config['risk']['min_notional'] = float(os.getenv('MIN_NOTIONAL'))
 
-    # Telegram settings
+    # Telegram
+    if os.getenv('TELEGRAM_ENABLED'):
+        config['telegram']['enabled'] = os.getenv('TELEGRAM_ENABLED').lower() == 'true'
     if os.getenv('TELEGRAM_BOT_TOKEN'):
         config['telegram']['bot_token'] = os.getenv('TELEGRAM_BOT_TOKEN')
     if os.getenv('ALLOWED_CHAT_IDS'):
-        # Convert "123,456" to list of ints
         allowed = [int(x.strip()) for x in os.getenv('ALLOWED_CHAT_IDS').split(',') if x.strip().isdigit()]
         if allowed:
             config['telegram']['allowed_chat_ids'] = allowed
-    if os.getenv('TELEGRAM_ENABLED'):
-        config['telegram']['enabled'] = os.getenv('TELEGRAM_ENABLED').lower() == 'true'
 
     # Logging
     if os.getenv('LOG_LEVEL'):
@@ -94,7 +133,6 @@ def setup_logging(config):
     log_level = config.get("logging", {}).get("level", "INFO")
     log_file = config.get("logging", {}).get("file", "logs/grid_bot.log")
 
-    # If DATA_DIR is set (Render), write logs there
     data_dir = os.getenv('DATA_DIR')
     if data_dir:
         log_dir = Path(data_dir) / "logs"
@@ -104,20 +142,18 @@ def setup_logging(config):
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / "grid_bot.log"
 
-    logger.remove()  # Remove default handler
+    logger.remove()
     logger.add(sys.stdout, level=log_level, colorize=True)
     logger.add(str(log_path), level=log_level, rotation="10 MB", retention="3 days")
     logger.info(f"Logging configured (level={log_level}, file={log_path})")
 
 
 async def main():
-    """Main entry point."""
     config = load_config()
     setup_logging(config)
 
     logger.info("🚀 Starting KuCoin Futures Grid Bot")
 
-    # ---------- Initialize Exchange (Real or Simulated) ----------
     if USE_SIMULATOR:
         logger.warning("🧪 RUNNING IN LOCAL SIMULATOR - No real funds, no API keys needed.")
         exchange = LocalSimulator(start_price=120.0)
@@ -127,12 +163,10 @@ async def main():
         await exchange.connect()
         await exchange.set_leverage(config["exchange"]["leverage"])
 
-    # ---------- Grid Engine ----------
     state = StateManager()
     grid = GridEngine(exchange, state, config["grid"])
     await grid.initialize()
 
-    # ---------- Telegram (Optional) ----------
     telegram = None
     if config.get("telegram", {}).get("enabled", False):
         logger.info("📱 Telegram is enabled. Attempting to start...")
@@ -141,7 +175,6 @@ async def main():
             config["telegram"]["allowed_chat_ids"],
             grid
         )
-        # Create the task, but wait 1 second to catch immediate crashes
         task = asyncio.create_task(telegram.run())
         await asyncio.sleep(1.0)
 
@@ -151,10 +184,8 @@ async def main():
             telegram = None
         else:
             logger.success("✅ Telegram task is running successfully.")
-            # Inject Telegram controller into Grid for PnL tracking
             grid.set_telegram(telegram)
 
-    # ---------- Run ----------
     try:
         await grid.run()
     except KeyboardInterrupt:
@@ -163,7 +194,6 @@ async def main():
         logger.error(f"❌ Fatal error: {e}")
         raise
     finally:
-        # Dead-man switch: cancel all orders on shutdown
         logger.info("🛑 Shutting down... Executing Dead-Man Switch.")
         try:
             await exchange.cancel_all_orders(grid.symbol)
