@@ -2,6 +2,7 @@
 """
 KuCoin Futures Grid Bot - Production Entry Point
 Supports Local Simulator and Live KuCoin Futures trading with Telegram monitoring.
+Includes health check server for Render deployment.
 """
 
 import os
@@ -10,6 +11,14 @@ import asyncio
 import yaml
 from pathlib import Path
 from loguru import logger
+
+# Import aiohttp for health check server
+try:
+    from aiohttp import web
+except ImportError:
+    # Fallback: if aiohttp not installed, warn and skip
+    logger.warning("aiohttp not installed. Health check server disabled.")
+    web = None
 
 try:
     from dotenv import load_dotenv
@@ -22,7 +31,9 @@ from core.state import StateManager
 from core.telegram import TelegramController
 
 
+# --- THE SWITCH ---
 USE_SIMULATOR = os.getenv('USE_SIMULATOR', 'true').lower() == 'true'
+# -----------------
 
 if USE_SIMULATOR:
     from simulator import LocalSimulator
@@ -44,7 +55,7 @@ def load_config():
         "risk": {
             "max_position_percent": 0.95, "stop_loss_percent": 0.25,
             "min_notional": 10.0,
-            "dynamic_floor_threshold": 0.02   # <--- CHANGED from 0.10
+            "dynamic_floor_threshold": 0.02   # Can be overridden by ENV
         },
         "telegram": {
             "enabled": False, "bot_token": "", "allowed_chat_ids": []
@@ -98,6 +109,7 @@ def load_config():
 
 
 def setup_logging(config):
+    """Configure logging with fallback if directory creation fails."""
     log_level = config.get("logging", {}).get("level", "INFO")
     log_file = config.get("logging", {}).get("file", "logs/grid_bot.log")
 
@@ -122,11 +134,35 @@ def setup_logging(config):
     logger.info(f"Logging configured (level={log_level}, file={log_path})")
 
 
+async def health_check(request):
+    """Simple health check endpoint for Render."""
+    return web.Response(text="OK")
+
+
+async def run_http_server():
+    """Start a minimal HTTP server for Render health checks."""
+    port = int(os.environ.get("PORT", 8080))
+    app = web.Application()
+    app.router.add_get("/", health_check)
+    app.router.add_get("/health", health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)
+    await site.start()
+    logger.info(f"✅ Health check server running on port {port}")
+
+
 async def main():
     config = load_config()
     setup_logging(config)
 
     logger.info("🚀 Starting KuCoin Futures Grid Bot")
+
+    # Start the HTTP server for Render's health checks (if aiohttp available)
+    if web is not None:
+        asyncio.create_task(run_http_server())
+    else:
+        logger.warning("aiohttp not available; health check server not started.")
 
     if USE_SIMULATOR:
         logger.warning("🧪 RUNNING IN LOCAL SIMULATOR - No real funds, no API keys needed.")
