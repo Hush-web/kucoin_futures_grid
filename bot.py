@@ -11,7 +11,6 @@ import yaml
 from pathlib import Path
 from loguru import logger
 
-# Try to load .env file locally (for development)
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -23,9 +22,7 @@ from core.state import StateManager
 from core.telegram import TelegramController
 
 
-# --- THE SWITCH ---
 USE_SIMULATOR = os.getenv('USE_SIMULATOR', 'true').lower() == 'true'
-# -----------------
 
 if USE_SIMULATOR:
     from simulator import LocalSimulator
@@ -46,7 +43,8 @@ def load_config():
         },
         "risk": {
             "max_position_percent": 0.95, "stop_loss_percent": 0.25,
-            "min_notional": 10.0, "dynamic_floor_threshold": 0.10
+            "min_notional": 10.0,
+            "dynamic_floor_threshold": 0.02   # <--- CHANGED from 0.10
         },
         "telegram": {
             "enabled": False, "bot_token": "", "allowed_chat_ids": []
@@ -83,6 +81,8 @@ def load_config():
         config['risk']['stop_loss_percent'] = float(os.getenv('STOP_LOSS_PERCENT'))
     if os.getenv('MIN_NOTIONAL'):
         config['risk']['min_notional'] = float(os.getenv('MIN_NOTIONAL'))
+    if os.getenv('DYNAMIC_FLOOR_THRESHOLD'):
+        config['risk']['dynamic_floor_threshold'] = float(os.getenv('DYNAMIC_FLOOR_THRESHOLD'))
     if os.getenv('TELEGRAM_ENABLED'):
         config['telegram']['enabled'] = os.getenv('TELEGRAM_ENABLED').lower() == 'true'
     if os.getenv('TELEGRAM_BOT_TOKEN'):
@@ -98,7 +98,6 @@ def load_config():
 
 
 def setup_logging(config):
-    """Configure logging with fallback if directory creation fails."""
     log_level = config.get("logging", {}).get("level", "INFO")
     log_file = config.get("logging", {}).get("file", "logs/grid_bot.log")
 
@@ -108,7 +107,6 @@ def setup_logging(config):
     else:
         log_dir = Path("logs")
 
-    # Try to create the directory, fallback to local 'logs' if it fails
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except (PermissionError, FileNotFoundError, OSError) as e:
