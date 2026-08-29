@@ -1,0 +1,24 @@
+# Secrets
+.env
+config.yaml
+
+# Databases & Logs
+data/
+logs/
+*.db
+*.log
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Render
+.rendered/

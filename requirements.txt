@@ -1,0 +1,6 @@
+ccxtpro>=1.0.0
+pyyaml>=6.0
+python-telegram-bot>=20.0
+loguru>=0.7.2
+aiofiles>=23.0
+matplotlib>=3.7.0
