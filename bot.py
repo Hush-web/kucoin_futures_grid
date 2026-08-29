@@ -23,9 +23,9 @@ from core.state import StateManager
 from core.telegram import TelegramController
 
 
-# --- THE SWITCH (Can be overridden by ENV) ---
+# --- THE SWITCH ---
 USE_SIMULATOR = os.getenv('USE_SIMULATOR', 'true').lower() == 'true'
-# ---------------------------------------------
+# -----------------
 
 if USE_SIMULATOR:
     from simulator import LocalSimulator
@@ -34,44 +34,26 @@ else:
 
 
 def load_config():
-    """
-    Load config.yaml if exists, otherwise create a default config.
-    Environment variables always override.
-    """
-    # Default config (used if config.yaml is missing)
+    """Load config.yaml if exists, otherwise use defaults. ENV overrides."""
     default_config = {
         "exchange": {
-            "api_key": "",
-            "api_secret": "",
-            "api_passphrase": "",
-            "sandbox": False,
-            "leverage": 2,
-            "margin_mode": "isolated"
+            "api_key": "", "api_secret": "", "api_passphrase": "",
+            "sandbox": False, "leverage": 2, "margin_mode": "isolated"
         },
         "grid": {
-            "symbol": "SOL/USDT:USDT",
-            "grid_lines": 20,
-            "range_percent": 0.05,
-            "quote_currency": "USDT"
+            "symbol": "SOL/USDT:USDT", "grid_lines": 20,
+            "range_percent": 0.05, "quote_currency": "USDT"
         },
         "risk": {
-            "max_position_percent": 0.95,
-            "stop_loss_percent": 0.25,
-            "min_notional": 10.0,
-            "dynamic_floor_threshold": 0.10
+            "max_position_percent": 0.95, "stop_loss_percent": 0.25,
+            "min_notional": 10.0, "dynamic_floor_threshold": 0.10
         },
         "telegram": {
-            "enabled": False,
-            "bot_token": "",
-            "allowed_chat_ids": []
+            "enabled": False, "bot_token": "", "allowed_chat_ids": []
         },
-        "logging": {
-            "level": "INFO",
-            "file": "logs/grid_bot.log"
-        }
+        "logging": {"level": "INFO", "file": "logs/grid_bot.log"}
     }
 
-    # Try to load config.yaml
     try:
         with open("config.yaml", "r") as f:
             config = yaml.safe_load(f)
@@ -83,34 +65,24 @@ def load_config():
         logger.error(f"Error loading config.yaml: {e}. Using defaults.")
         config = default_config
 
-    # --- OVERRIDE WITH ENVIRONMENT VARIABLES ---
-    # Exchange
-    if os.getenv('KUCOIN_API_KEY'):
-        config['exchange']['api_key'] = os.getenv('KUCOIN_API_KEY')
-    if os.getenv('KUCOIN_API_SECRET'):
-        config['exchange']['api_secret'] = os.getenv('KUCOIN_API_SECRET')
-    if os.getenv('KUCOIN_PASSPHRASE'):
-        config['exchange']['api_passphrase'] = os.getenv('KUCOIN_PASSPHRASE')
+    # Override with ENV
+    for key in ['KUCOIN_API_KEY', 'KUCOIN_API_SECRET', 'KUCOIN_PASSPHRASE']:
+        if os.getenv(key):
+            config['exchange'][key.lower().replace('kucoin_', '')] = os.getenv(key)
     if os.getenv('SANDBOX_MODE'):
         config['exchange']['sandbox'] = os.getenv('SANDBOX_MODE').lower() == 'true'
     if os.getenv('LEVERAGE'):
         config['exchange']['leverage'] = int(os.getenv('LEVERAGE'))
-
-    # Grid
     if os.getenv('SYMBOL'):
         config['grid']['symbol'] = os.getenv('SYMBOL')
     if os.getenv('GRID_LINES'):
         config['grid']['grid_lines'] = int(os.getenv('GRID_LINES'))
     if os.getenv('RANGE_PERCENT'):
         config['grid']['range_percent'] = float(os.getenv('RANGE_PERCENT'))
-
-    # Risk
     if os.getenv('STOP_LOSS_PERCENT'):
         config['risk']['stop_loss_percent'] = float(os.getenv('STOP_LOSS_PERCENT'))
     if os.getenv('MIN_NOTIONAL'):
         config['risk']['min_notional'] = float(os.getenv('MIN_NOTIONAL'))
-
-    # Telegram
     if os.getenv('TELEGRAM_ENABLED'):
         config['telegram']['enabled'] = os.getenv('TELEGRAM_ENABLED').lower() == 'true'
     if os.getenv('TELEGRAM_BOT_TOKEN'):
@@ -119,8 +91,6 @@ def load_config():
         allowed = [int(x.strip()) for x in os.getenv('ALLOWED_CHAT_IDS').split(',') if x.strip().isdigit()]
         if allowed:
             config['telegram']['allowed_chat_ids'] = allowed
-
-    # Logging
     if os.getenv('LOG_LEVEL'):
         config['logging']['level'] = os.getenv('LOG_LEVEL')
 
@@ -128,7 +98,7 @@ def load_config():
 
 
 def setup_logging(config):
-    """Configure loguru logging with support for Render persistent disk."""
+    """Configure logging with fallback if directory creation fails."""
     log_level = config.get("logging", {}).get("level", "INFO")
     log_file = config.get("logging", {}).get("file", "logs/grid_bot.log")
 
@@ -136,9 +106,16 @@ def setup_logging(config):
     if data_dir:
         log_dir = Path(data_dir) / "logs"
     else:
-        log_dir = Path(log_file).parent
+        log_dir = Path("logs")
 
-    log_dir.mkdir(parents=True, exist_ok=True)
+    # Try to create the directory, fallback to local 'logs' if it fails
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except (PermissionError, FileNotFoundError, OSError) as e:
+        logger.warning(f"Cannot create {log_dir}: {e}. Falling back to './logs'.")
+        log_dir = Path("logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+
     log_path = log_dir / "grid_bot.log"
 
     logger.remove()
